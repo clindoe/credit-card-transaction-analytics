@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+
+# Data files (too large for GitHub)
+data/*.csv
+data/*.zip
+
+# Temp files
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+temp_manifests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# AWS credentials
+.aws/
