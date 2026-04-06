@@ -1,0 +1,52 @@
+{
+  "report_timestamp": "2026-04-06T01:42:16.883866+00:00",
+  "job_name": "raw-to-staging",
+  "record_counts": {
+    "raw_input": 1852394,
+    "schema_failures": 0,
+    "null_dropped": 0,
+    "duplicates_removed": 0,
+    "final_output": 1852394,
+    "quality_score_pct": 100.0
+  },
+  "null_counts_per_column": {},
+  "amount_statistics": {
+    "min": 1.0,
+    "max": 28948.9,
+    "mean": 70.06,
+    "stddev": 159.25,
+    "median": 47.45
+  },
+  "fraud_distribution": {
+    "0": 1842743,
+    "1": 9651
+  },
+  "category_distribution": {
+    "gas_transport": 188029,
+    "grocery_pos": 176191,
+    "home": 175460,
+    "shopping_pos": 166463,
+    "kids_pets": 161727,
+    "shopping_net": 139322,
+    "entertainment": 134118,
+    "food_dining": 130729,
+    "personal_care": 130085,
+    "health_fitness": 122553,
+    "misc_pos": 114229,
+    "misc_net": 90654,
+    "grocery_net": 64878,
+    "travel": 57956
+  },
+  "amount_bucket_distribution": {
+    "10_to_50": 481238,
+    "200_to_1000": 81763,
+    "50_to_200": 804014,
+    "over_1000": 5520,
+    "under_10": 479859
+  },
+  "distance_statistics": {
+    "min_km": 0.02,
+    "max_km": 152.12,
+    "mean_km": 76.11
+  }
+}
