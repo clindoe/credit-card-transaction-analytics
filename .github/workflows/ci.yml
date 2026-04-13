@@ -9,7 +9,7 @@ on:
 
 jobs:
   # ── Job 1: Lint ──────────────────────────────────────────────────────────────
- lint:
+  lint:
     name: Lint (flake8)
     runs-on: ubuntu-latest
     steps:
@@ -24,14 +24,14 @@ jobs:
         run: pip install flake8 flake8-bugbear
 
       - name: Run flake8
-        run: >
-          flake8 
-          src/ingestion/ 
-          src/monitoring/ 
-          src/dashboard/app.py 
-          src/dashboard/utils/ 
-          tests/ 
-          --count --statistics
+        run: |
+          flake8 \
+            src/ingestion/ \
+            src/monitoring/ \
+            src/dashboard/app.py \
+            src/dashboard/utils/ \
+            tests/ \
+            --count --statistics
 
   # ── Job 2: Unit Tests ────────────────────────────────────────────────────────
   test:
