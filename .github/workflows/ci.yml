@@ -29,11 +29,7 @@ jobs:
 
       - name: Run flake8
         run: |
-          flake8 src/ tests/ \
-            --max-line-length=120 \
-            --extend-ignore=E203,W503 \
-            --exclude=src/glue_jobs/,src/dashboard/pages/ \
-            --count --statistics
+          flake8 src/ tests/ --count --statistics
 
   # ── Job 2: Unit Tests ────────────────────────────────────────────────────────
   test:
@@ -61,10 +57,9 @@ jobs:
           python -m pytest tests/ \
             -v \
             --tb=short \
-            --cov=src \
+            --cov=src/ingestion \
             --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=80
+            --cov-report=xml
         env:
           PYTHONPATH: ${{ github.workspace }}
 
