@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CloudWatch dashboard, alarms, and SNS alerting for the credit card
+  transaction analytics pipeline. Namespace: CreditTxnPipeline.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: credit-txn-analytics
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+  AlertEmail:
+    Type: String
+    Description: Email address to receive SNS pipeline alerts.
+    Default: ""
+  DataQualityThreshold:
+    Type: Number
+    Default: 95
+    MinValue: 0
+    MaxValue: 100
+    Description: Minimum acceptable data quality score (%).
+  AnomalyCountThreshold:
+    Type: Number
+    Default: 250000
+    Description: Maximum acceptable anomaly flag count per run.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Resources:
+  # ── SNS Topic ─────────────────────────────────────────────────────────────────
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: credit-txn-pipeline-alerts
+      DisplayName: "Credit Txn Pipeline Alerts"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  AlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ── CloudWatch Alarms ─────────────────────────────────────────────────────────
+
+  DataQualityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-${Environment}-data-quality-low"
+      AlarmDescription: !Sub >
+        Data quality score dropped below ${DataQualityThreshold}%.
+        Check s3://credit-txn-analytics-adil/staging/data_quality_reports/ for the latest report.
+      Namespace: CreditTxnPipeline
+      MetricName: DataQualityScore
+      Period: 300
+      Statistic: Average
+      ComparisonOperator: LessThanThreshold
+      Threshold: !Ref DataQualityThreshold
+      EvaluationPeriods: 1
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertsTopic
+      OKActions:
+        - !Ref AlertsTopic
+      InsufficientDataActions:
+        - !Ref AlertsTopic
+
+  RawToStagingFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-${Environment}-raw-to-staging-failed"
+      AlarmDescription: The raw-to-staging Glue job reported a failure.
+      Namespace: CreditTxnPipeline
+      MetricName: GlueJobSuccess
+      Dimensions:
+        - Name: JobName
+          Value: raw-to-staging
+      Period: 300
+      Statistic: Minimum
+      ComparisonOperator: LessThanThreshold
+      Threshold: 1
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  StagingToAnalyticsFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-${Environment}-staging-to-analytics-failed"
+      AlarmDescription: The staging-to-analytics Glue job reported a failure.
+      Namespace: CreditTxnPipeline
+      MetricName: GlueJobSuccess
+      Dimensions:
+        - Name: JobName
+          Value: staging-to-analytics
+      Period: 300
+      Statistic: Minimum
+      ComparisonOperator: LessThanThreshold
+      Threshold: 1
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  AnomalyCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-${Environment}-anomaly-spike"
+      AlarmDescription: !Sub >
+        Anomaly flag count exceeded ${AnomalyCountThreshold}.
+        Possible model drift or data quality issue.
+      Namespace: CreditTxnPipeline
+      MetricName: AnomalyDetectionCount
+      Period: 300
+      Statistic: Sum
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: !Ref AnomalyCountThreshold
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  FailedBatchCountAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-${Environment}-ingestion-batch-failures"
+      AlarmDescription: One or more ingestion batches failed. Check temp_manifests/ locally.
+      Namespace: CreditTxnPipeline
+      MetricName: FailedBatchCount
+      Period: 300
+      Statistic: Sum
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 0
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  # ── CloudWatch Dashboard ──────────────────────────────────────────────────────
+  PipelineDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${ProjectName}-${Environment}-pipeline"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text",
+              "x": 0, "y": 0, "width": 24, "height": 2,
+              "properties": {
+                "markdown": "# Credit Card Transaction Analytics Pipeline\nNamespace: `CreditTxnPipeline` | Bucket: `s3://credit-txn-analytics-adil` | Region: ${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0, "y": 2, "width": 6, "height": 6,
+              "properties": {
+                "title": "Data Quality Score (%)",
+                "metrics": [["CreditTxnPipeline", "DataQualityScore"]],
+                "period": 300,
+                "stat": "Average",
+                "view": "timeSeries",
+                "yAxis": {"left": {"min": 0, "max": 100}},
+                "annotations": {
+                  "horizontal": [{"value": 95, "label": "Min threshold", "color": "#E74C3C"}]
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "x": 6, "y": 2, "width": 6, "height": 6,
+              "properties": {
+                "title": "Batch Ingestion Count",
+                "metrics": [
+                  ["CreditTxnPipeline", "BatchIngestionCount"],
+                  ["CreditTxnPipeline", "FailedBatchCount", {"color": "#E74C3C"}]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12, "y": 2, "width": 6, "height": 6,
+              "properties": {
+                "title": "Anomaly Precision & Recall (%)",
+                "metrics": [
+                  ["CreditTxnPipeline", "AnomalyPrecision", {"label": "Precision"}],
+                  ["CreditTxnPipeline", "AnomalyRecall", {"label": "Recall", "color": "#2CA6A4"}]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 18, "y": 2, "width": 6, "height": 6,
+              "properties": {
+                "title": "Records Dropped (Quality Checks)",
+                "metrics": [
+                  ["CreditTxnPipeline", "RecordsDropped", {"label": "Null/Schema drops"}],
+                  ["CreditTxnPipeline", "DuplicatesRemoved", {"label": "Duplicates", "color": "#E67E22"}]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0, "y": 8, "width": 12, "height": 6,
+              "properties": {
+                "title": "Glue Job Duration (seconds)",
+                "metrics": [
+                  ["CreditTxnPipeline", "GlueJobDuration", "JobName", "raw-to-staging"],
+                  ["CreditTxnPipeline", "GlueJobDuration", "JobName", "staging-to-analytics"],
+                  ["CreditTxnPipeline", "GlueJobDuration", "JobName", "fraud-feature-engineering"],
+                  ["CreditTxnPipeline", "GlueJobDuration", "JobName", "export-for-tableau"]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "view": "timeSeries"
+              }
+            },
+            {
+              "type": "alarm",
+              "x": 12, "y": 8, "width": 12, "height": 6,
+              "properties": {
+                "title": "Active Pipeline Alarms",
+                "alarms": [
+                  "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectName}-${Environment}-data-quality-low",
+                  "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectName}-${Environment}-raw-to-staging-failed",
+                  "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectName}-${Environment}-staging-to-analytics-failed",
+                  "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectName}-${Environment}-anomaly-spike",
+                  "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:${ProjectName}-${Environment}-ingestion-batch-failures"
+                ]
+              }
+            }
+          ]
+        }
+
+Outputs:
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-alerts-topic-arn"
+
+  DashboardUrl:
+    Value: !Sub >
+      https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}-${Environment}-pipeline
+    Description: Direct link to the CloudWatch pipeline dashboard.

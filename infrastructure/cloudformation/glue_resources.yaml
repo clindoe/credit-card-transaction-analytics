@@ -1,0 +1,243 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  AWS Glue catalog database, four ETL jobs, and an orchestration workflow with
+  conditional triggers for the credit card transaction analytics pipeline.
+  Prerequisite: iam_roles.yaml and s3_buckets.yaml must be deployed first.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: credit-txn-analytics
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+  BucketName:
+    Type: String
+    Default: credit-txn-analytics-adil
+  GlueRoleArn:
+    Type: String
+    Description: >
+      ARN of the Glue IAM role. Copy from iam_roles stack Output "GlueRoleArn",
+      or use: aws cloudformation describe-stacks --stack-name <iam-stack> --query
+      "Stacks[0].Outputs[?OutputKey=='GlueRoleArn'].OutputValue" --output text
+  GlueVersion:
+    Type: String
+    Default: "4.0"
+    AllowedValues: ["3.0", "4.0"]
+  WorkerType:
+    Type: String
+    Default: G.2X
+    AllowedValues: [G.1X, G.2X, G.4X]
+    Description: Glue DPU worker type. G.2X = 2 vCPU / 16 GB per worker.
+  NumWorkers:
+    Type: Number
+    Default: 10
+    MinValue: 2
+    MaxValue: 100
+
+Resources:
+  # ── Glue Data Catalog database ────────────────────────────────────────────────
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: credit_txn_db
+        Description: >
+          Data catalog for the credit card transaction analytics pipeline.
+          Backed by Parquet files on s3://credit-txn-analytics-adil/.
+
+  # ── Job 1: raw-to-staging (Bronze → Silver) ───────────────────────────────────
+  RawToStagingJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: raw-to-staging
+      Description: >
+        Reads raw Parquet batches, enforces schema, drops nulls, deduplicates,
+        enriches with time/geo features, writes partitioned Parquet to staging.
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub "s3://${BucketName}/glue-scripts/raw_to_staging.py"
+        PythonVersion: "3"
+      GlueVersion: !Ref GlueVersion
+      WorkerType: !Ref WorkerType
+      NumberOfWorkers: !Ref NumWorkers
+      Timeout: 60
+      MaxRetries: 1
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": ""
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-job-insights": "true"
+        "--S3_BUCKET": !Ref BucketName
+        "--TempDir": !Sub "s3://${BucketName}/glue-temp/"
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Layer: bronze-to-silver
+
+  # ── Job 2: staging-to-analytics (Silver → Gold) ───────────────────────────────
+  StagingToAnalyticsJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: staging-to-analytics
+      Description: >
+        Builds four analytics tables: daily_merchant_summary, customer_risk_scores,
+        category_spending_trends, and fraud_detection_results (anomaly flags).
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub "s3://${BucketName}/glue-scripts/staging_to_analytics.py"
+        PythonVersion: "3"
+      GlueVersion: !Ref GlueVersion
+      WorkerType: !Ref WorkerType
+      NumberOfWorkers: !Ref NumWorkers
+      Timeout: 90
+      MaxRetries: 1
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": ""
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-job-insights": "true"
+        "--S3_BUCKET": !Ref BucketName
+        "--TempDir": !Sub "s3://${BucketName}/glue-temp/"
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Layer: silver-to-gold
+
+  # ── Job 3: fraud-feature-engineering (Silver → Gold) ─────────────────────────
+  FraudFeatureEngineeringJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: fraud-feature-engineering
+      Description: >
+        Computes ML-ready features: velocity (1h/6h/24h), lag amounts,
+        geographic speed, and customer baseline statistics.
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub "s3://${BucketName}/glue-scripts/fraud_feature_engineering.py"
+        PythonVersion: "3"
+      GlueVersion: !Ref GlueVersion
+      WorkerType: !Ref WorkerType
+      NumberOfWorkers: !Ref NumWorkers
+      Timeout: 120
+      MaxRetries: 1
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": ""
+        "--enable-continuous-cloudwatch-log": "true"
+        "--enable-job-insights": "true"
+        "--S3_BUCKET": !Ref BucketName
+        "--TempDir": !Sub "s3://${BucketName}/glue-temp/"
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Layer: silver-to-gold
+
+  # ── Job 4: export-for-tableau (Gold → Exports) ───────────────────────────────
+  ExportForTableauJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: export-for-tableau
+      Description: >
+        Reads analytics Parquet tables, denormalises, and writes three
+        flat CSV files to s3://exports/ for Tableau Public ingestion.
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub "s3://${BucketName}/glue-scripts/export_for_tableau.py"
+        PythonVersion: "3"
+      GlueVersion: !Ref GlueVersion
+      WorkerType: G.1X         # Lighter job — CSV writes don't need G.2X
+      NumberOfWorkers: 5
+      Timeout: 60
+      MaxRetries: 1
+      DefaultArguments:
+        "--job-language": "python"
+        "--enable-metrics": ""
+        "--enable-continuous-cloudwatch-log": "true"
+        "--S3_BUCKET": !Ref BucketName
+        "--TempDir": !Sub "s3://${BucketName}/glue-temp/"
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Layer: gold-to-exports
+
+  # ── Workflow ──────────────────────────────────────────────────────────────────
+  PipelineWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Sub "${ProjectName}-pipeline"
+      Description: >
+        Orchestrates the four-stage pipeline: raw-to-staging, then
+        staging-to-analytics, then (in parallel) feature-engineering and
+        export-for-tableau.
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+
+  # ── Trigger 1: on-demand start → raw-to-staging ───────────────────────────────
+  TriggerStart:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub "${ProjectName}-trigger-start"
+      Type: ON_DEMAND
+      WorkflowName: !Ref PipelineWorkflow
+      Actions:
+        - JobName: !Ref RawToStagingJob
+
+  # ── Trigger 2: after raw-to-staging → staging-to-analytics ───────────────────
+  TriggerStagingToAnalytics:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub "${ProjectName}-trigger-analytics"
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref PipelineWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - JobName: !Ref RawToStagingJob
+            State: SUCCEEDED
+            LogicalOperator: EQUALS
+      Actions:
+        - JobName: !Ref StagingToAnalyticsJob
+
+  # ── Trigger 3: after staging-to-analytics → feature-eng + export (parallel) ──
+  TriggerGoldJobs:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub "${ProjectName}-trigger-gold"
+      Type: CONDITIONAL
+      StartOnCreation: true
+      WorkflowName: !Ref PipelineWorkflow
+      Predicate:
+        Logical: AND
+        Conditions:
+          - JobName: !Ref StagingToAnalyticsJob
+            State: SUCCEEDED
+            LogicalOperator: EQUALS
+      Actions:
+        - JobName: !Ref FraudFeatureEngineeringJob
+        - JobName: !Ref ExportForTableauJob
+
+Outputs:
+  WorkflowName:
+    Value: !Ref PipelineWorkflow
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-workflow-name"
+
+  GlueDatabaseName:
+    Value: !Ref GlueDatabase
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-glue-db"
+
+  RawToStagingJobName:
+    Value: !Ref RawToStagingJob
+
+  StagingToAnalyticsJobName:
+    Value: !Ref StagingToAnalyticsJob

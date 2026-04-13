@@ -1,0 +1,182 @@
+name: CI — Lint & Test
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Lint ──────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint tools
+        run: pip install flake8 flake8-bugbear
+
+      - name: Run flake8
+        run: |
+          flake8 src/ tests/ \
+            --max-line-length=120 \
+            --extend-ignore=E203,W503 \
+            --exclude=src/glue_jobs/,src/dashboard/pages/ \
+            --count --statistics
+
+  # ── Job 2: Unit Tests ────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests (pytest)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest with coverage
+        run: |
+          python -m pytest tests/ \
+            -v \
+            --tb=short \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=80
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 7
+
+  # ── Job 3: CloudFormation Validate ──────────────────────────────────────────
+  validate-cfn:
+    name: Validate CloudFormation Templates
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true   # Skip gracefully if secrets not configured
+
+      - name: Validate IAM template
+        if: env.AWS_ACCESS_KEY_ID != ''
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://infrastructure/cloudformation/iam_roles.yaml \
+            --region us-east-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Validate S3 template
+        if: env.AWS_ACCESS_KEY_ID != ''
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://infrastructure/cloudformation/s3_buckets.yaml \
+            --region us-east-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Validate Glue template
+        if: env.AWS_ACCESS_KEY_ID != ''
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://infrastructure/cloudformation/glue_resources.yaml \
+            --region us-east-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Validate Monitoring template
+        if: env.AWS_ACCESS_KEY_ID != ''
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://infrastructure/cloudformation/monitoring.yaml \
+            --region us-east-1
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: CFN templates check (no AWS creds)
+        if: env.AWS_ACCESS_KEY_ID == ''
+        run: |
+          echo "AWS secrets not configured — skipping live CFN validation."
+          echo "Add AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY to repo secrets to enable."
+          ls -la infrastructure/cloudformation/*.yaml
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+  # ── Job 4: Streamlit Smoke Test ──────────────────────────────────────────────
+  streamlit-smoke:
+    name: Streamlit Import Check
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check Streamlit app imports
+        run: |
+          cd src/dashboard
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          from utils.data_loader import (
+              load_quality_reports,
+              load_manifests,
+              load_customer_risk,
+              load_merchant_analysis,
+          )
+          # Verify synthetic fallbacks work with no real data
+          reports = load_quality_reports.__wrapped__()
+          manifests = load_manifests.__wrapped__()
+          customers = load_customer_risk.__wrapped__()
+          merchants = load_merchant_analysis.__wrapped__()
+          assert len(reports) > 0, 'Quality reports empty'
+          assert len(manifests) > 0, 'Manifests empty'
+          assert len(customers) > 0, 'Customer data empty'
+          assert len(merchants) > 0, 'Merchant data empty'
+          print('All data loaders returned data (synthetic fallback)')
+          "
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src/dashboard

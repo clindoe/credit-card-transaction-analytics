@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  IAM roles and policies for the credit card transaction analytics pipeline.
+  Deploy this stack FIRST — other stacks reference the Glue role ARN from its Outputs.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: credit-txn-analytics
+    Description: Logical name used for resource naming and tagging.
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+  BucketName:
+    Type: String
+    Default: credit-txn-analytics-adil
+    Description: Name of the S3 data lake bucket (not ARN — ARN is derived here).
+
+Resources:
+  # ── Glue execution role ──────────────────────────────────────────────────────
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-glue-role"
+      Description: Assumed by all Glue ETL jobs in the pipeline.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Provides base Glue permissions (GetJob, BatchStopJobRun, etc.)
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3DataLakeAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BucketList
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${BucketName}"
+              - Sid: ObjectReadWrite
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${BucketName}/*"
+
+        - PolicyName: CloudWatchMetricsAndLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws-glue/*"
+
+        - PolicyName: SNSPublishAlerts
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${ProjectName}-*"
+
+        - PolicyName: GlueCatalogAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - glue:GetDatabase
+                  - glue:GetTable
+                  - glue:GetPartition
+                  - glue:CreateTable
+                  - glue:UpdateTable
+                  - glue:BatchCreatePartition
+                  - glue:GetUserDefinedFunction
+                Resource:
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:catalog"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:database/credit_txn_db"
+                  - !Sub "arn:aws:glue:${AWS::Region}:${AWS::AccountId}:table/credit_txn_db/*"
+
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  GlueRoleArn:
+    Description: ARN of the Glue execution role — pass to glue_resources.yaml.
+    Value: !GetAtt GlueServiceRole.Arn
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-glue-role-arn"
+
+  GlueRoleName:
+    Description: Name of the Glue execution role.
+    Value: !Ref GlueServiceRole
+    Export:
+      Name: !Sub "${ProjectName}-${Environment}-glue-role-name"
