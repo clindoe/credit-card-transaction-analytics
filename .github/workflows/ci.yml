@@ -28,6 +28,15 @@ jobs:
           flake8 \
             src/ingestion/ \
             src/monitoring/ \
+- name: Run flake8
+        run: >
+          flake8 
+          src/ingestion/ 
+          src/monitoring/ 
+          src/dashboard/app.py 
+          src/dashboard/utils/ 
+          tests/ 
+          --count --statistics
             src/dashboard/app.py \
             src/dashboard/utils/ \
             tests/ \
@@ -176,3 +185,4 @@ jobs:
           "
         env:
           PYTHONPATH: ${{ github.workspace }}/src/dashboard
+
