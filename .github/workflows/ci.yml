@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same branch/PR
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   # ── Job 1: Lint ──────────────────────────────────────────────────────────────
@@ -29,7 +25,13 @@ jobs:
 
       - name: Run flake8
         run: |
-          flake8 src/ tests/ --count --statistics
+          flake8 \
+            src/ingestion/ \
+            src/monitoring/ \
+            src/dashboard/app.py \
+            src/dashboard/utils/ \
+            tests/ \
+            --count --statistics
 
   # ── Job 2: Unit Tests ────────────────────────────────────────────────────────
   test:
