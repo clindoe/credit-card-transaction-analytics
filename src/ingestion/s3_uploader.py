@@ -26,8 +26,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Create a single S3 client to reuse across uploads (avoids re-creating connections)
-s3_client = boto3.client("s3", region_name=REGION)
+# S3 client — created on first use so importing this module never requires AWS credentials
+_s3_client = None
+
+
+def _get_client():
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client("s3", region_name=REGION)
+    return _s3_client
 
 
 def build_s3_key(zone: str, table: str, year: int, month: int, day: int, filename: str) -> str:
@@ -71,10 +78,10 @@ def upload_file(local_path: str, s3_key: str, max_retries: int = 3) -> bool:
                 f"({file_size / 1024:.1f} KB) [attempt {attempt}/{max_retries}]"
             )
 
-            s3_client.upload_file(local_path, BUCKET_NAME, s3_key)
+            _get_client().upload_file(local_path, BUCKET_NAME, s3_key)
 
             # Verify the upload by checking the object exists and size matches
-            response = s3_client.head_object(Bucket=BUCKET_NAME, Key=s3_key)
+            response = _get_client().head_object(Bucket=BUCKET_NAME, Key=s3_key)
             remote_size = response["ContentLength"]
 
             if remote_size == file_size:
@@ -106,7 +113,7 @@ def upload_bytes(data: bytes, s3_key: str) -> bool:
         True if upload succeeded, False otherwise
     """
     try:
-        s3_client.put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=data)
+        _get_client().put_object(Bucket=BUCKET_NAME, Key=s3_key, Body=data)
         logger.info(f"Uploaded bytes → s3://{BUCKET_NAME}/{s3_key} ({len(data)} bytes)")
         return True
     except ClientError as e:
@@ -125,7 +132,7 @@ def list_objects(prefix: str) -> list:
         List of S3 keys
     """
     keys = []
-    paginator = s3_client.get_paginator("list_objects_v2")
+    paginator = _get_client().get_paginator("list_objects_v2")
 
     for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
         for obj in page.get("Contents", []):
