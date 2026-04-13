@@ -24,3 +24,6 @@ Thumbs.db
 
 # AWS credentials
 .aws/
+tableau/data/*.csv
+data/*.csv
+.Rhistory
