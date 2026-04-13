@@ -7,7 +7,6 @@ Run with: python -m pytest tests/ -v
 import pytest
 import pandas as pd
 import os
-import tempfile
 import pyarrow.parquet as pq
 
 # We test functions in isolation — no actual S3 uploads in unit tests

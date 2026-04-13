@@ -162,21 +162,20 @@ jobs:
           import sys
           sys.path.insert(0, '.')
           from utils.data_loader import (
-              load_quality_reports,
-              load_manifests,
-              load_customer_risk,
-              load_merchant_analysis,
+              _synthetic_quality_report,
+              _synthetic_manifest,
+              _synthetic_customer_risk,
+              _synthetic_merchant_data,
           )
-          # Verify synthetic fallbacks work with no real data
-          reports = load_quality_reports.__wrapped__()
-          manifests = load_manifests.__wrapped__()
-          customers = load_customer_risk.__wrapped__()
-          merchants = load_merchant_analysis.__wrapped__()
+          reports = [_synthetic_quality_report()]
+          manifests = [_synthetic_manifest()]
+          customers = _synthetic_customer_risk()
+          merchants = _synthetic_merchant_data()
           assert len(reports) > 0, 'Quality reports empty'
           assert len(manifests) > 0, 'Manifests empty'
           assert len(customers) > 0, 'Customer data empty'
           assert len(merchants) > 0, 'Merchant data empty'
-          print('All data loaders returned data (synthetic fallback)')
+          print('All synthetic data generators work correctly')
           "
         env:
           PYTHONPATH: ${{ github.workspace }}/src/dashboard

@@ -3,7 +3,9 @@ Credit Card Transaction Analytics — Streamlit Dashboard
 Entry point: streamlit run src/dashboard/app.py
 """
 
+import pandas as pd
 import streamlit as st
+
 from utils.data_loader import load_quality_reports, load_manifests
 
 st.set_page_config(
@@ -91,13 +93,16 @@ CSV (Kaggle)  ──▶  S3 raw/          [Bronze]  1,852,394 rows
 
 with col_right:
     st.subheader("Glue Job Status")
-    import pandas as pd
     jobs_df = pd.DataFrame(
         [
-            {"Job": "raw-to-staging", "Layer": "Bronze→Silver", "Status": "✅ Succeeded", "Output": "1,852,394 rows"},
-            {"Job": "staging-to-analytics", "Layer": "Silver→Gold", "Status": "✅ Succeeded", "Output": "4 analytics tables"},
-            {"Job": "fraud-feature-engineering", "Layer": "Silver→Gold", "Status": "✅ Succeeded", "Output": "ML feature table"},
-            {"Job": "export-for-tableau", "Layer": "Gold→Exports", "Status": "✅ Succeeded", "Output": "3 CSV exports"},
+            {"Job": "raw-to-staging", "Layer": "Bronze→Silver",
+             "Status": "✅ Succeeded", "Output": "1,852,394 rows"},
+            {"Job": "staging-to-analytics", "Layer": "Silver→Gold",
+             "Status": "✅ Succeeded", "Output": "4 analytics tables"},
+            {"Job": "fraud-feature-engineering", "Layer": "Silver→Gold",
+             "Status": "✅ Succeeded", "Output": "ML feature table"},
+            {"Job": "export-for-tableau", "Layer": "Gold→Exports",
+             "Status": "✅ Succeeded", "Output": "3 CSV exports"},
         ]
     )
     st.dataframe(jobs_df, use_container_width=True, hide_index=True)

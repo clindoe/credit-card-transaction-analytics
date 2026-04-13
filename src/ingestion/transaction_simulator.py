@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 # Import our reusable S3 uploader
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from src.ingestion.s3_uploader import upload_file, upload_bytes, build_s3_key, BUCKET_NAME
+from src.ingestion.s3_uploader import upload_file, upload_bytes, build_s3_key, BUCKET_NAME  # noqa: E402
 
 # ──────────────────────────────────────────────
 # CONFIGURATION

@@ -17,6 +17,7 @@ import streamlit as st
 
 # ── Project root detection ────────────────────────────────────────────────────
 
+
 def _project_root() -> Path:
     """Walk up from this file until we find requirements.txt."""
     current = Path(__file__).resolve().parent

@@ -20,8 +20,8 @@ SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:471879937478:credit-txn-pipeline-alerts"
 
 ALERT_THRESHOLDS = {
     "data_quality_min_pct": 95.0,
-    "anomaly_count_max": 250000,      # 2x normal baseline — update with your number
-    "glue_job_max_duration_sec": 3600, # 1 hour
+    "anomaly_count_max": 250000,        # 2x normal baseline — update with your number
+    "glue_job_max_duration_sec": 3600,  # 1 hour
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

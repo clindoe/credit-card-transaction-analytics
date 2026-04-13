@@ -16,7 +16,7 @@ from botocore.exceptions import ClientError
 # ──────────────────────────────────────────────
 # CONFIGURATION — UPDATE THIS WITH YOUR BUCKET NAME
 # ──────────────────────────────────────────────
-BUCKET_NAME = "credit-txn-analytics-adil"   # 
+BUCKET_NAME = "credit-txn-analytics-adil"
 REGION = "us-east-1"
 # ──────────────────────────────────────────────
 
