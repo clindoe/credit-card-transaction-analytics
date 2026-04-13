@@ -6,7 +6,7 @@ A production-grade ELT pipeline on AWS that ingests 1.85M credit card transactio
 
 **Streamlit:** [credit-card-transaction-analytics.streamlit.app](https://credit-card-transaction-analytics.streamlit.app/)
 
-**Tableau Public:** [Fraud Detection Dashboards](https://public.tableau.com)
+**Tableau Public:** [Fraud Detection Dashboards](https://public.tableau.com/app/profile/md.ajmain.adil/viz/shared/MWFTK4692)
 
 ## Architecture
 
